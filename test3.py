@@ -6,6 +6,7 @@ from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import re
 import os
+import numpy as np
 
 # 🔧 Path ไปยัง Tesseract OCR (เปลี่ยนตามเครื่องคุณ)
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -73,66 +74,69 @@ def export_to_csv(data_list):
 
 # 🖼 OCR และแสดงผล
 def process_image(path):
-    """Process image with optimized Thai OCR settings"""
+    """Process image with enhanced OCR settings"""
     try:
         # Read image
         image = cv2.imread(path)
         if image is None:
             raise ValueError("Cannot read image file")
-        
-        # Preprocess
+            
+        # Preprocess image
         processed = preprocess_image(image)
         
-        # OCR Configuration for Thai
+        # Configure Tesseract
         custom_config = r'--oem 3 --psm 6 -l tha+eng --dpi 300'
         
-        # Perform OCR with Thai language support
-        text = pytesseract.image_to_string(
-            processed,
-            config=custom_config,
-        )
+        # Perform OCR
+        text = pytesseract.image_to_string(processed, config=custom_config)
         
         # Clean text
-        text = re.sub(r'\s+', ' ', text)
-        text = text.strip()
+        text = re.sub(r'\s+', ' ', text).strip()
         
-        # Convert Thai numerals to Arabic
-        thai_digits = str.maketrans('๐๑๒๓๔๕๖๗๘๙', '0123456789')
-        text = text.translate(thai_digits)
-        
+        # Extract information
         result = extract_info(text)
         return result, text
         
     except Exception as e:
-        logging.error(f"OCR Processing failed: {str(e)}")
+        messagebox.showerror("Error", f"OCR Processing failed: {str(e)}")
         return None, None
 
 def preprocess_image(image):
-    """Enhanced preprocessing for Thai text"""
-    # Convert BGR to RGB
-    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    """Enhanced preprocessing for better OCR results"""
+    # Convert to RGB
+    if len(image.shape) == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     
-    # Resize image (2x) for better detail
-    height, width = image_rgb.shape[:2]
-    image_resized = cv2.resize(image_rgb, (width*2, height*2), interpolation=cv2.INTER_CUBIC)
+    # Resize for better OCR (2x)
+    height, width = image.shape[:2]
+    image = cv2.resize(image, (width*2, height*2), interpolation=cv2.INTER_CUBIC)
     
     # Convert to grayscale
-    gray = cv2.cvtColor(image_resized, cv2.COLOR_RGB2GRAY)
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = image
+        
+    # Apply bilateral filter to remove noise while preserving edges
+    denoised = cv2.bilateralFilter(gray, 9, 75, 75)
     
     # Enhance contrast using CLAHE
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    enhanced = clahe.apply(gray)
+    enhanced = clahe.apply(denoised)
     
-    # Denoise
-    denoised = cv2.fastNlMeansDenoising(enhanced, h=10)
-    
-    # Adaptive thresholding
+    # Apply adaptive thresholding
     thresh = cv2.adaptiveThreshold(
-        denoised, 255,
+        enhanced,
+        255,
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY,
-        21, 11
+        21,  # Block size
+        11   # C constant
     )
+    
+    # Optional: Apply morphological operations to clean up the image
+    kernel = np.ones((1,1), np.uint8)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
     
     return thresh
 
