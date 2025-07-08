@@ -8,10 +8,10 @@ import re
 import os
 import numpy as np
 
-# 🔧 Path ไปยัง Tesseract OCR (เปลี่ยนตามเครื่องคุณ)
+#  Path ไปยัง Tesseract OCR (เปลี่ยนตามเครื่องคุณ)
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
-# 🔍 ดึงข้อมูลจากข้อความ OCR
+#  ดึงข้อมูลจากข้อความ OCR
 def extract_info(text):
     """Enhanced information extraction for Thai text"""
     # Thai date patterns
@@ -60,45 +60,103 @@ def extract_info(text):
         'Name': name.group(1).strip() if name else ''
     }
 
-# 📤 บันทึกเป็น Excel
+def extract_name(text):
+    """
+    Enhanced name extraction for Thai text with multiple patterns and cleaning
+    """
+    # Common Thai title prefixes to remove
+    thai_titles = r'(นาย|นางสาว|นาง|ดร\.|ผศ\.|รศ\.|ศ\.|คุณ)'
+    
+    # Comprehensive name patterns with priority order
+    name_patterns = [
+        # Direct name patterns
+        r'ชื่อ\s*(?::|่|้|็|๊|๋)?\s*([ก-๛A-Za-z\s]+)',
+        r'ผู้โอน\s*(?::|่|้|็|๊|๋)?\s*([ก-๛A-Za-z\s]+)',
+        r'จาก\s*(?::|่|้|็|๊|๋)?\s*([ก-๛A-Za-z\s]+)',
+        
+        # Recipient patterns
+        r'ผู้รับเงิน\s*(?::|่|้|็|๊|๋)?\s*([ก-๛A-Za-z\s]+)',
+        r'ผู้รับโอน\s*(?::|่|้|็|๊|๋)?\s*([ก-๛A-Za-z\s]+)',
+        r'ผู้รับ\s*(?::|่|้|็|๊|๋)?\s*([ก-๛A-Za-z\s]+)',
+        
+        # Account name patterns
+        r'ชื่อบัญชี\s*(?::|่|้|็|๊|๋)?\s*([ก-๛A-Za-z\s]+)',
+        r'บัญชี\s*(?::|่|้|็|๊|๋)?\s*([ก-๛A-Za-z\s]+)',
+        
+        # Fallback patterns
+        r'(?::|่|้|็|๊|๋)?\s*([ก-๛A-Za-z\s]{3,30})'  # Generic Thai name length 3-30 chars
+    ]
+    
+    def clean_name(name):
+        """Clean extracted name by removing titles and extra spaces"""
+        if not name:
+            return ''
+        
+        # Remove Thai titles
+        name = re.sub(thai_titles, '', name, flags=re.IGNORECASE)
+        
+        # Remove special characters and extra spaces
+        name = re.sub(r'[^\u0E00-\u0E7Fa-zA-Z\s]', '', name)
+        name = re.sub(r'\s+', ' ', name)
+        
+        # Remove common OCR artifacts
+        name = re.sub(r'[:.،|]', '', name)
+        
+        return name.strip()
+    
+    # Try each pattern in order
+    for pattern in name_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            name = clean_name(match.group(1))
+            # Validate name length and content
+            if len(name) >= 3 and re.search(r'[ก-๛]', name):
+                return name
+    
+    return ''
+
+#  บันทึกเป็น Excel
 def export_to_excel(data_list):
     df = pd.DataFrame(data_list)
     df.to_excel("slip_results.xlsx", index=False)
     messagebox.showinfo("Success", "Data saved to slip_results.xlsx")
 
-# 📤 บันทึกเป็น CSV
+#  บันทึกเป็น CSV
 def export_to_csv(data_list):
     df = pd.DataFrame(data_list)
     df.to_csv("slip_results.csv", index=False, encoding="utf-8-sig")
     messagebox.showinfo("Success", "Data saved to slip_results.csv")
 
-# 🖼 OCR และแสดงผล
+#  OCR และแสดงผล
 def process_image(path):
-    """Process image with enhanced OCR settings"""
+    """Enhanced image processing for better Thai OCR"""
     try:
         # Read image
         image = cv2.imread(path)
         if image is None:
-            raise ValueError("Cannot read image file")
-            
-        # Preprocess image
+            raise ValueError("Cannot read image")
+        
+        # Enhanced preprocessing
         processed = preprocess_image(image)
         
-        # Configure Tesseract
+        # OCR with Thai optimization
         custom_config = r'--oem 3 --psm 6 -l tha+eng --dpi 300'
-        
-        # Perform OCR
-        text = pytesseract.image_to_string(processed, config=custom_config)
+        text = pytesseract.image_to_string(
+            processed,
+            config=custom_config,
+            lang='tha+eng'
+        )
         
         # Clean text
         text = re.sub(r'\s+', ' ', text).strip()
         
-        # Extract information
+        # Extract information with enhanced name detection
         result = extract_info(text)
+        
         return result, text
         
     except Exception as e:
-        messagebox.showerror("Error", f"OCR Processing failed: {str(e)}")
+        logging.error(f"OCR Processing failed: {str(e)}")
         return None, None
 
 def preprocess_image(image):
@@ -140,7 +198,7 @@ def preprocess_image(image):
     
     return thresh
 
-# 📂 ฟังก์ชันเลือกไฟล์
+#  ฟังก์ชันเลือกไฟล์
 def select_image():
     filepath = filedialog.askopenfilename(
         filetypes=[("Image Files", "*.jpg *.png *.jpeg")]
@@ -168,10 +226,10 @@ def select_image():
 👤 Name: {result['Name']}
         """)
 
-# 🧠 ตัวแปรเก็บผล
+#  ตัวแปรเก็บผล
 results_list = []
 
-# 🎨 สร้าง GUI
+# ... สร้าง GUI
 root = tk.Tk()
 root.title("OCR สลิปเงิน → CSV")
 root.state('zoomed')  # Maximize window to fit the screen
